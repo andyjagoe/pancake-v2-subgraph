@@ -1,6 +1,7 @@
 /* eslint-disable prefer-const */
 import { BigInt, BigDecimal, store } from '@graphprotocol/graph-ts'
 import {
+  Buyer,
   Pair,
   Token,
   UniswapFactory,
@@ -425,6 +426,32 @@ export function handleSwap(event: Swap): void {
   uniswap.untrackedVolumeUSD = uniswap.untrackedVolumeUSD.plus(derivedAmountUSD)
   uniswap.txCount = uniswap.txCount.plus(ONE_BI)
 
+
+  // buyer user stats
+  let buyer = Buyer.load(event.params.to.toHexString())
+  let isNewUser = false
+  if (buyer === null) {
+    isNewUser = true
+
+    buyer = new Buyer(event.params.to.toHexString())
+    buyer.createdAtBlockNumber = event.block.number
+    buyer.createdAtTimestamp = event.block.timestamp
+    buyer.totalVolumeUSD = derivedAmountUSD
+    buyer.totalVolumeETH = derivedAmountETH
+    buyer.txCount = ONE_BI
+    buyer.save()
+
+    // Update global user/wallet counter (TODO: make this sharded)
+    uniswap.buyerCount = uniswap.buyerCount.plus(ONE_BI)
+    
+  } else {
+    buyer.totalVolumeUSD = buyer.totalVolumeUSD.plus(derivedAmountUSD)
+    buyer.totalVolumeETH = buyer.totalVolumeETH.plus(derivedAmountETH)
+    buyer.txCount = buyer.txCount.plus(ONE_BI)
+    buyer.save()
+  }
+
+
   // save entities
   pair.save()
   token0.save()
@@ -479,6 +506,15 @@ export function handleSwap(event: Swap): void {
   let uniswapDayData = updateUniswapDayData(event)
   let token0DayData = updateTokenDayData(token0 as Token, event)
   let token1DayData = updateTokenDayData(token1 as Token, event)
+
+
+  // new buyer specific updates
+  if (isNewUser) uniswapDayData.newBuyerCount = uniswapDayData.newBuyerCount.plus(ONE_BI)
+  if (!uniswapDayData.activeBuyers.includes(event.params.to.toHexString())) {
+    uniswapDayData.activeBuyers = uniswapDayData.activeBuyers.concat([event.params.to.toHexString()])
+    uniswapDayData.activeBuyerCount = uniswapDayData.activeBuyerCount.plus(ONE_BI)
+  }
+
 
   // swap specific updating
   uniswapDayData.dailyVolumeUSD = uniswapDayData.dailyVolumeUSD.plus(trackedAmountUSD)
